@@ -3,7 +3,8 @@ pipeline with local iKraph, LLM, email_agent
 
 
 ### Main Goal
-
+When user ask a question to iKraph with email sending request, the Router divide it into pure medical question (for iKraph) and email intent (for Email Agent). The LLM will make response to medical question and also email the content to target address.
+e.g. "What is the application of Panadol? Please send the answer to IAN123@gmail.com."
 
 <p align="center">
   <img src="./images/email_agent_pipeline.png" alt="email_agent_pipeline" width="700" height="350"/>
