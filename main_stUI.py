@@ -6,29 +6,31 @@ from google import genai # pip install google-genai -U
 from google.oauth2.service_account import Credentials # pip install google-auth -U
 import streamlit as st
 from dotenv import load_dotenv
-load_dotenv()  
+load_dotenv()  # loads .env into environment variables
 
-# conda activate app_py311
+# conda activate base
 # streamlit run main_stUI.py
 
 
-# =========================
-# user setting
-# =========================
 OLLAMA_URL = "http://localhost:11434/api/generate"
 OLLAMA_MODEL = "gpt-oss:latest" 
 
-key_path = os.path.join(os.path.dirname(__file__), "your_project-123456.json")
+key_path = os.path.join(os.path.dirname(__file__), "mscare-469417-34b5d2374359.json")
 credentials = Credentials.from_service_account_file(key_path, scopes=["https://www.googleapis.com/auth/cloud-platform"])
-client = genai.Client(vertexai=True, project="your_project", location="us-central1", credentials=credentials)
+client = genai.Client(vertexai=True, project="mscare-469417", location="us-central1", credentials=credentials)
 GEMINI_MODEL = "gemini-2.5-flash"
  
+#NEO4J_URI = "bolt://localhost:8084"
+#NEO4J_USER = "neo4j"
+#NEO4J_PASS = "neo4j_ikraph"
 NEO4J_URI = os.getenv("NEO4J_URI")
 NEO4J_USER = os.getenv("NEO4J_USER")
 NEO4J_PASS = os.getenv("NEO4J_PASS")
 SMTP_APP_PASS = os.getenv("SMTP_APP_PASS")
 SMTP_SENDER = os.getenv("SMTP_SENDER")
 driver = GraphDatabase.driver(NEO4J_URI, auth=(NEO4J_USER, NEO4J_PASS))
+
+
 
 
 
@@ -204,6 +206,7 @@ Task:
 - Improve clarity, organization, and readability.
 - Do NOT add new medical claims.
 - Output email body only (no subject line).
+- At the end of email, append Sincerely, Your AI assistant
 
 Email Subject:
 {subject}
@@ -223,31 +226,9 @@ Original Content:
 # -----------------------------
 # Agent controller
 # -----------------------------
-def ai_email_agent(ikraph_answer: str, result: dict):
+#def ai_email_agent(body: str, result: dict):
 
-    if result["intent"] == "send_email":
-        email_info = result["email"]
-
-        # Safety check
-        if not email_info["to"]:
-            return "No recipient email detected."
         
-        body = rewrite_email_body(result["email"]["subject"], ikraph_answer)
-        #body = generate_email_body(email_info["body_prompt"])
-        
-
-        send_email_smtp(
-            to_email=email_info["to"],
-            subject=email_info["subject"] or "No Subject",
-            body=body
-        )
-        #print(f"Email sent to {email_info['to']}")
-        return body
-
-    else:
-        #print(f"No Email be sent")
-        return body
-
 
 
 def main():
@@ -266,9 +247,6 @@ def main():
         print("\n[3] Summarizing results with LLM...")
         answer = summarize_results(question, results)
 
-        #print("\n======================")
-        #print("Final Answer:")
-        #print(answer)
         return  answer
 
 
@@ -296,34 +274,45 @@ user_prompt = st.text_area(
 
 col1, col2 = st.columns([1, 3])
 with col1:
-    send_btn = st.button("Send", type="primary")
+    reply_btn = st.button("Reply", type="primary")
 
 with col2:
     st.markdown("Example:\n\n"
     "What is the application of Panadol? "
-    "Please send the answer to IAN123@gmail.com \n\n"
-    "where are the major international airports in Tokyo? please also send your response to "
-    "IAN456@gapp.nthu.edu.tw, with recipient name, Ian")
+    "Please send the answer to eric85021811@gmail.com \n\n"
+    "What is Paronychia? "
+    "Please also send the answer to eric85021811@gmail.com ")
 
+
+
+# declare, avoiding errors and preserving state correctly across reruns.
+if "body" not in st.session_state:
+    st.session_state.body = ""
+if "to_email" not in st.session_state:
+    st.session_state.to_email = ""
+if "subject" not in st.session_state:
+    st.session_state.subject = ""
 
 # Response panel
-if send_btn:
+if reply_btn:
     if not user_prompt.strip():
         st.warning("Please enter a prompt.")
     else:
         with st.spinner("Thinking..."):
             try:
                 result = route_user_question(user_prompt)
-
-                answer = main()
-                
-
+                answer = main()              
                 st.subheader(f"Response")             
-                st.write(answer)
+                st.write(answer) 
 
-                with st.expander("Email content (if Active)"):
-                    emailresult = ai_email_agent(answer, result)
-                    st.write(emailresult)
+                #==================================
+                if result["intent"] == "send_email":
+                    body = rewrite_email_body(result["email"]["subject"], answer)
+                    st.session_state.body = body  #store so it persists after button click
+                    st.session_state.to_email =  result["email"]["to"]
+                    st.session_state.subject = result["email"]["subject"]
+                                   
+                #=========================================================   
 
                 # Optional debugging display
                 with st.expander("Debug: extracted intent JSON"):
@@ -338,7 +327,35 @@ if send_btn:
 
 
 
+if st.session_state.body:
+    with st.expander("Email content", expanded=True):
+                              
+                        
+                        subject = st.text_input("Subject", value=st.session_state.subject )
+                        to_email = st.text_input("To", value=st.session_state.to_email )
+                        # let user edit the email body before sending
+                        edit_body = st.text_area("Body", value=st.session_state.body, height=250)
+                        # store user inputs so rerun keeps them
+                        st.session_state.to_email = to_email
+                        st.session_state.subject = subject
 
+                        send_btn = st.button("✅ Confirm & Send Email")
+                        if send_btn:
+                            
+                            if not to_email.strip():
+                                st.warning("Please input target email address.")
+                            elif not subject.strip():
+                                st.warning("Please input subject.")
+                            elif not edit_body.strip():
+                                st.warning("Email body is empty.")
+                            else:
+                                try:
+                                    st.write("Calling send_email_smtp ...")
+                                    send_email_smtp(to_email, subject, edit_body)
+                                  
+                                    st.success(f"Email sent to {to_email}")
+                                except Exception as e:
+                                    st.error(f"Failed to send email: {e}")
 
 
 
